@@ -10,3 +10,6 @@
 [submodule "orb_slam_frontend/thirdparty/ORB_SLAM3"]
 	path = modules/odometry/orb_slam_frontend/thirdparty/ORB_SLAM3
 	url = https://github.com/koide3/ORB_SLAM3.git
+[submodule "modules/mapping/teaser_global/thirdparty/TEASER-plusplus"]
+	path = modules/mapping/teaser_global/thirdparty/TEASER-plusplus
+	url = https://github.com/MIT-SPARK/TEASER-plusplus.git
