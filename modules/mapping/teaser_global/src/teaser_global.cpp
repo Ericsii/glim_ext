@@ -72,15 +72,41 @@ void TEASERGlobal::global_localization_task() {
       continue;
     }
 
-    for (const auto& submap : new_submaps) {
-      const auto T_world_origin = submap->T_world_origin;
+    const auto& submap = new_submaps.back();
 
-      Eigen::Matrix<double, 3, Eigen::Dynamic> submap_points{3, submap->frame->size()};
-      for (size_t i = 0; i < submap->frame->size(); ++i) {
-        const auto& point = submap->frame->points[i];
-        submap_points.col(i) << point.x(), point.y(), point.z();
-      }
+    Eigen::Matrix<double, 3, Eigen::Dynamic> submap_points{3, submap->frame->size()};
+    for (size_t i = 0; i < submap->frame->size(); ++i) {
+      const auto& point = submap->frame->points[i];
+      submap_points.col(i) << point.x(), point.y(), point.z();
     }
+
+    // Run TEASER++ registration
+    teaser::RobustRegistrationSolver::Params params;
+    params.estimate_scaling = false;
+    params.rotation_max_iterations = 100;
+
+    teaser::RobustRegistrationSolver solver(params);
+    solver.solve(submap_points, map_points_);  // map_points_ = T_origin_map * submap_points
+
+    const auto solution = solver.getSolution();
+    if (!solution.valid) {
+      logger_->debug("submap id: {}. Registration failed.", submap->id);
+      continue;
+    }
+
+    const auto rotation = solution.rotation;
+    const auto translation = solution.translation;
+
+    using gtsam::symbol_shorthand::X;
+    gtsam::Pose3 T_origin_map(gtsam::Rot3(rotation), gtsam::Point3(translation(0), translation(1), translation(2)));
+    gtsam::Vector6 sigmas;
+    sigmas << 0.05, 0.05, 0.05,  // Example: 0.05 radians (approx. 2.8 degrees) uncertainty for Roll, Pitch, Yaw
+      0.2, 0.2, 0.2;             // Example: 0.2 meters (20 cm) uncertainty for X, Y, Z translation
+    gtsam::noiseModel::Diagonal::shared_ptr noiseModel = gtsam::noiseModel::Diagonal::Sigmas(sigmas);
+
+    auto factor = std::make_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(submap->id), T_origin_map, noiseModel);
+
+    factors_.push_back(std::move(factor));
   }
 }
 

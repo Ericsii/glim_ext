@@ -11,7 +11,7 @@
 
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/geometry/Pose3.h>
-#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 
@@ -40,7 +40,7 @@ private:
   // ConcurrentVector<EstimationFrame::ConstPtr> odom_frames_queue_;
   ConcurrentVector<SubMap::ConstPtr> new_submaps_queue_;
 
-  ConcurrentVector<gtsam::NonlinearFactor::shared_ptr> factors_;
+  ConcurrentVector<gtsam::PriorFactor<gtsam::Pose3>::shared_ptr> factors_;
 
   Eigen::Matrix<double, 3, Eigen::Dynamic> map_points_;
 
