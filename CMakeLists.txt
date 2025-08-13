@@ -14,6 +14,7 @@ option(ENABLE_SCAN_CONTEXT "Enable ScanContext Loop Detector" OFF)
 option(ENABLE_DBOW "Enable DBoW Loop Detector" OFF)
 option(ENABLE_GNSS "Enable GNSS module (ROS1 is not supported)" ON)
 option(ENABLE_FLATEARTHER "Enable flat earth assumption module" ON)
+option(ENABLE_TEASER "Enable TEASER module" ON)
 
 #################
 ## ROS-related ##
@@ -87,6 +88,11 @@ endif()
 if(ENABLE_FLATEARTHER)
   add_subdirectory(modules/mapping/flat_earther)
   list(APPEND glim_ext_LIBRARIES flat_earther)
+endif()
+
+if(ENABLE_TEASER)
+  add_subdirectory(modules/mapping/teaser_global)
+  list(APPEND glim_ext_LIBRARIES teaser_global)
 endif()
 
 #############
