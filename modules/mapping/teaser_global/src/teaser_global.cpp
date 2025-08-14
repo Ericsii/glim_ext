@@ -102,9 +102,10 @@ void TEASERGlobal::global_localization_task() {
     gtsam::Vector6 sigmas;
     sigmas << 0.05, 0.05, 0.05,  // Example: 0.05 radians (approx. 2.8 degrees) uncertainty for Roll, Pitch, Yaw
       0.2, 0.2, 0.2;             // Example: 0.2 meters (20 cm) uncertainty for X, Y, Z translation
-    gtsam::noiseModel::Diagonal::shared_ptr noiseModel = gtsam::noiseModel::Diagonal::Sigmas(sigmas);
+    auto base = gtsam::noiseModel::Diagonal::Sigmas(sigmas);
+    auto noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.0), base);
 
-    auto factor = std::make_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(submap->id), T_origin_map, noiseModel);
+    auto factor = std::make_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(submap->id), T_origin_map, noise_model);
 
     factors_.push_back(std::move(factor));
   }
