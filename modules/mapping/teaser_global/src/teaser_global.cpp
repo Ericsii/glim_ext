@@ -112,3 +112,7 @@ void TEASERGlobal::global_localization_task() {
 }
 
 }  // namespace glim
+
+extern "C" glim::ExtensionModule* create_extension_module() {
+  return new glim::TEASERGlobal();
+}
