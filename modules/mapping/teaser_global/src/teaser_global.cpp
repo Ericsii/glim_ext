@@ -65,6 +65,11 @@ void TEASERGlobal::on_smoother_update(gtsam_points::ISAM2Ext& isam2, gtsam::Nonl
 void TEASERGlobal::global_localization_task() {
   logger_->info("starting TEASER global localization thread");
 
+  if (map_points_.cols() == 0) {
+    logger_->error("Map points are empty, cannot perform global localization.");
+    return;
+  }
+
   while (!kill_switch_) {
     const auto new_submaps = new_submaps_queue_.get_all_and_clear();
     if (new_submaps.empty()) {
