@@ -1,6 +1,8 @@
 #include <teaser_global.hpp>
 
 #include <pcl/io/pcd_io.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/random_sample.h>
 
 #include <glim/util/config.hpp>
 #include <glim_ext/util/config_ext.hpp>
@@ -26,18 +28,20 @@ TEASERGlobal::TEASERGlobal() : logger_(create_module_logger("teaser_global")) {
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr map_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
   if (fs::extension(map_path_) == ".pcd") {
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(map_path_, *map_cloud) == -1) {
+    if (pcl::io::loadPCDFile<pcl::PointXYZ>(map_path_, *map_cloud) != 0) {
       logger_->error("Failed to load PCD file: {}", map_path_);
     }
   } else {
     logger_->error("Unsupported map file extension: {}", fs::extension(map_path_));
   }
 
-  map_points_.resize(3, map_cloud->size());
-  for (auto i = 0; i < map_cloud->size(); ++i) {
-    const auto& point = map_cloud->points[i];
-    map_points_.col(i) << point.x, point.y, point.z;
-  }
+  downsample_convert_map_points(map_cloud);
+
+  // map_points_.resize(3, map_cloud->size());
+  // for (auto i = 0; i < map_cloud->size(); ++i) {
+  //   const auto& point = map_cloud->points[i];
+  //   map_points_.col(i) << point.x, point.y, point.z;
+  // }
 
   GlobalMappingCallbacks::on_insert_submap.add([this](const SubMap::ConstPtr& submap) { new_submaps_queue_.push_back(submap); });
   GlobalMappingCallbacks::on_smoother_update.add(
@@ -91,11 +95,14 @@ void TEASERGlobal::global_localization_task() {
     params.rotation_max_iterations = 100;
 
     teaser::RobustRegistrationSolver solver(params);
+
+    logger_->info("submap id: {}. Running TEASER++ registration with {} points.", submap->id, submap_points.cols());
     solver.solve(submap_points, map_points_);  // map_points_ = T_origin_map * submap_points
+    logger_->info("submap id: {}. TEASER++ registration finished.", submap->id);
 
     const auto solution = solver.getSolution();
     if (!solution.valid) {
-      logger_->debug("submap id: {}. Registration failed.", submap->id);
+      logger_->info("submap id: {}. Registration failed.", submap->id);
       continue;
     }
 
@@ -113,6 +120,39 @@ void TEASERGlobal::global_localization_task() {
     auto factor = std::make_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(submap->id), T_origin_map, noise_model);
 
     factors_.push_back(std::move(factor));
+  }
+}
+
+void TEASERGlobal::downsample_convert_map_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud) {
+  const int target_points = 10000;
+  if (!point_cloud || point_cloud->empty()) {
+    logger_->error("Input map point cloud is empty.");
+    return;
+  }
+  logger_->info("Loaded map pointcloud with {} points.", point_cloud->size());
+
+  // Downsample if necessary
+  if (point_cloud->size() > target_points) {
+    pcl::VoxelGrid<pcl::PointXYZ> sor;
+    const double leaf_size = 0.1;  // Set voxel grid to 0.1m
+    sor.setLeafSize(leaf_size, leaf_size, leaf_size);
+    sor.setInputCloud(point_cloud);
+    sor.filter(*point_cloud);
+  }
+  if (point_cloud->size() > target_points) {
+    pcl::RandomSample<pcl::PointXYZ> random_sample;
+    random_sample.setInputCloud(point_cloud);
+    random_sample.setSample(target_points);
+    random_sample.filter(*point_cloud);
+  }
+
+  logger_->info("Downsampled map pointcloud to {} points.", point_cloud->size());
+
+  // Convert to Eigen::Matrix<double, 3, N>
+  map_points_.resize(3, point_cloud->size());
+  for (size_t i = 0; i < point_cloud->size(); ++i) {
+    const auto& pt = point_cloud->points[i];
+    map_points_.col(i) << static_cast<double>(pt.x), static_cast<double>(pt.y), static_cast<double>(pt.z);
   }
 }
 

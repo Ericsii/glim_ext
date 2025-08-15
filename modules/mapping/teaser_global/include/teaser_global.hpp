@@ -36,6 +36,8 @@ public:
 
   void global_localization_task();
 
+  void downsample_convert_map_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud);
+
 private:
   // ConcurrentVector<EstimationFrame::ConstPtr> odom_frames_queue_;
   ConcurrentVector<SubMap::ConstPtr> new_submaps_queue_;
