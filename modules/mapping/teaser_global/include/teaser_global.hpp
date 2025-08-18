@@ -18,6 +18,8 @@
 #include <gtsam_points/factors/integrated_gicp_factor.hpp>
 #include <gtsam_points/optimizers/levenberg_marquardt_ext.hpp>
 
+#include <teaser/geometry.h>
+
 #include <glim/mapping/callbacks.hpp>
 #include <glim/odometry/estimation_frame.hpp>
 #include <glim/mapping/sub_map.hpp>
@@ -36,7 +38,7 @@ public:
 
   void global_localization_task();
 
-  void downsample_convert_map_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud);
+  teaser::PointCloud downsample_convert_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud);
 
 private:
   // ConcurrentVector<EstimationFrame::ConstPtr> odom_frames_queue_;
@@ -44,7 +46,7 @@ private:
 
   ConcurrentVector<gtsam::PriorFactor<gtsam::Pose3>::shared_ptr> factors_;
 
-  Eigen::Matrix<double, 3, Eigen::Dynamic> map_points_;
+  teaser::PointCloud map_points_;
 
   int frame_count_ = 0;
   std::string map_path_;

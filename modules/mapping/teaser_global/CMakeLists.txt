@@ -3,6 +3,7 @@ project(teaser_global)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(BUILD_TEASER_FPFH ON)
 add_subdirectory(thirdparty/TEASER-plusplus)
 
 find_package(Eigen3 REQUIRED)
@@ -20,8 +21,9 @@ target_include_directories(teaser_global PRIVATE
 target_link_libraries(teaser_global
   Eigen3::Eigen
   ${PCL_LIBRARIES}
-  teaserpp::teaser_registration
   teaserpp::teaser_io
+  teaserpp::teaser_registration
+  teaserpp::teaser_features
   glim::glim
   glim_ext
 )

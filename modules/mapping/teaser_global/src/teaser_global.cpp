@@ -8,6 +8,7 @@
 #include <glim_ext/util/config_ext.hpp>
 
 #include <teaser/registration.h>
+#include <teaser/matcher.h>
 
 namespace glim {
 
@@ -35,13 +36,7 @@ TEASERGlobal::TEASERGlobal() : logger_(create_module_logger("teaser_global")) {
     logger_->error("Unsupported map file extension: {}", fs::extension(map_path_));
   }
 
-  downsample_convert_map_points(map_cloud);
-
-  // map_points_.resize(3, map_cloud->size());
-  // for (auto i = 0; i < map_cloud->size(); ++i) {
-  //   const auto& point = map_cloud->points[i];
-  //   map_points_.col(i) << point.x, point.y, point.z;
-  // }
+  map_points_ = downsample_convert_points(map_cloud);
 
   GlobalMappingCallbacks::on_insert_submap.add([this](const SubMap::ConstPtr& submap) { new_submaps_queue_.push_back(submap); });
   GlobalMappingCallbacks::on_smoother_update.add(
@@ -69,10 +64,15 @@ void TEASERGlobal::on_smoother_update(gtsam_points::ISAM2Ext& isam2, gtsam::Nonl
 void TEASERGlobal::global_localization_task() {
   logger_->info("starting TEASER global localization thread");
 
-  if (map_points_.cols() == 0) {
+  if (map_points_.size() == 0) {
     logger_->error("Map points are empty, cannot perform global localization.");
     return;
   }
+
+  logger_->info("Computing FPFH features for map");
+  auto fpfh = teaser::FPFHEstimation{};
+  auto map_descriptors = fpfh.computeFPFHFeatures(map_points_, 0.3, 0.5);
+  logger_->info("FPFH features for map computed.");
 
   while (!kill_switch_) {
     const auto new_submaps = new_submaps_queue_.get_all_and_clear();
@@ -82,12 +82,20 @@ void TEASERGlobal::global_localization_task() {
     }
 
     const auto& submap = new_submaps.back();
+    const auto& frame = submap->frame;
 
-    Eigen::Matrix<double, 3, Eigen::Dynamic> submap_points{3, submap->frame->size()};
-    for (size_t i = 0; i < submap->frame->size(); ++i) {
-      const auto& point = submap->frame->points[i];
-      submap_points.col(i) << point.x(), point.y(), point.z();
+    auto submap_cloud_pcl = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    for (auto i = 0; i < frame->size(); ++i) {
+      const auto& point = frame->points[i];
+      submap_cloud_pcl->emplace_back(point(0), point(1), point(2));
     }
+
+    logger_->info("Downsampling and computing FPFH features for submap");
+    auto submap_points = downsample_convert_points(submap_cloud_pcl);
+    auto submap_descriptors = fpfh.computeFPFHFeatures(submap_points, 0.3, 0.5);
+
+    auto matcher = teaser::Matcher{};
+    auto correspondences = matcher.calculateCorrespondences(submap_points, map_points_, *submap_descriptors, *map_descriptors, false, true, false, 0.95);
 
     // Run TEASER++ registration
     teaser::RobustRegistrationSolver::Params params;
@@ -96,8 +104,8 @@ void TEASERGlobal::global_localization_task() {
 
     teaser::RobustRegistrationSolver solver(params);
 
-    logger_->info("submap id: {}. Running TEASER++ registration with {} points.", submap->id, submap_points.cols());
-    solver.solve(submap_points, map_points_);  // map_points_ = T_origin_map * submap_points
+    logger_->info("submap id: {}. Running TEASER++ registration with {} points.", submap->id, submap_points.size());
+    solver.solve(submap_points, map_points_, correspondences);  // map_points_ = T_origin_map * submap_points
     logger_->info("submap id: {}. TEASER++ registration finished.", submap->id);
 
     const auto solution = solver.getSolution();
@@ -123,22 +131,22 @@ void TEASERGlobal::global_localization_task() {
   }
 }
 
-void TEASERGlobal::downsample_convert_map_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud) {
+teaser::PointCloud TEASERGlobal::downsample_convert_points(const pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud) {
   const int target_points = 10000;
+  auto cloud = teaser::PointCloud{};
   if (!point_cloud || point_cloud->empty()) {
     logger_->error("Input map point cloud is empty.");
-    return;
+    return cloud;
   }
   logger_->info("Loaded map pointcloud with {} points.", point_cloud->size());
 
-  // Downsample if necessary
-  if (point_cloud->size() > target_points) {
-    pcl::VoxelGrid<pcl::PointXYZ> sor;
-    const double leaf_size = 0.1;  // Set voxel grid to 0.1m
-    sor.setLeafSize(leaf_size, leaf_size, leaf_size);
-    sor.setInputCloud(point_cloud);
-    sor.filter(*point_cloud);
-  }
+  // Apply VoxelGrid filter
+  pcl::VoxelGrid<pcl::PointXYZ> sor;
+  const double leaf_size = 0.1;  // Set voxel grid to 0.1m
+  sor.setLeafSize(leaf_size, leaf_size, leaf_size);
+  sor.setInputCloud(point_cloud);
+  sor.filter(*point_cloud);
+
   if (point_cloud->size() > target_points) {
     pcl::RandomSample<pcl::PointXYZ> random_sample;
     random_sample.setInputCloud(point_cloud);
@@ -148,12 +156,11 @@ void TEASERGlobal::downsample_convert_map_points(const pcl::PointCloud<pcl::Poin
 
   logger_->info("Downsampled map pointcloud to {} points.", point_cloud->size());
 
-  // Convert to Eigen::Matrix<double, 3, N>
-  map_points_.resize(3, point_cloud->size());
-  for (size_t i = 0; i < point_cloud->size(); ++i) {
-    const auto& pt = point_cloud->points[i];
-    map_points_.col(i) << static_cast<double>(pt.x), static_cast<double>(pt.y), static_cast<double>(pt.z);
+  cloud.reserve(point_cloud->size());
+  for (auto i = 0; i < point_cloud->size(); ++i) {
+    cloud.push_back({static_cast<float>(point_cloud->points[i].x), static_cast<float>(point_cloud->points[i].y), static_cast<float>(point_cloud->points[i].z)});
   }
+  return cloud;
 }
 
 }  // namespace glim
