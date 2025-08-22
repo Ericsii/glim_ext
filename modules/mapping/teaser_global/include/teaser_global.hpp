@@ -1,4 +1,5 @@
-#include <mutex>
+#pragma once
+
 #include <thread>
 #include <memory>
 #include <boost/format.hpp>
@@ -20,6 +21,7 @@
 
 #include <teaser/geometry.h>
 
+#include <glim/odometry/callbacks.hpp>
 #include <glim/mapping/callbacks.hpp>
 #include <glim/odometry/estimation_frame.hpp>
 #include <glim/mapping/sub_map.hpp>
